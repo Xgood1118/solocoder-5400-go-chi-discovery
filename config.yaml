@@ -1,0 +1,15 @@
+node_id: "node-1"
+bind: ":8109"
+data_dir: "./data"
+datacenter: "dc1"
+auth_token: "your-secret-token"
+default_ttl: "30s"
+max_failures: 3
+
+datacenters:
+  - name: "dc1"
+    seed_list:
+      - "http://localhost:8109"
+  - name: "dc2"
+    seed_list:
+      - "http://localhost:8501"

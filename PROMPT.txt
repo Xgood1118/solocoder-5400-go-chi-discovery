@@ -1,0 +1,45 @@
+微服务多了之后服务发现就成了刚需。原来用 Consul 但部署和运维太重，团队就想搞个轻量的服务发现注册中心自己维护。技术栈用 Go + Chi，单二进制部署，配置文件简单，服务注册上来能用就行。
+
+核心思路：服务启动的时候主动注册到注册中心，注册中心记录它的名字、地址、端口、标签、健康检查路径。客户端调用别的服务的时候先问注册中心"现在 order-service 的实例有哪些"，拿到实例列表后自己做负载均衡去调用。健康检查：注册中心定期 ping 注册进来的服务，ping 不通就标 unhealthy。续约：实例要定期（30 秒可配）发心跳证明自己活着，N 次没续约就剔除。
+
+服务注册：POST /v1/agent/service/register，body 里 service_name、address、port、tags、health_check 路径、check_interval、ttl。心跳接口 POST /v1/agent/service/heartbeat/<service_id>。注销接口 POST /v1/agent/service/deregister/<service_id>。
+
+服务发现：
+- GET /v1/catalog/services - 列出所有注册的服务名和标签
+- GET /v1/catalog/service/<name> - 列出指定服务的所有健康实例
+- GET /v1/catalog/service/<name>?tag=tag1,tag2 - 按 tag 过滤
+- GET /v1/health/service/<name> - 查服务的整体健康状态
+
+返回的实例列表里有 ServiceID、ServiceName、Address、Port、Tags、Status（passing/warning/critical）、LastHeartbeat 这种字段。
+
+多数据中心：注册中心要能分组到不同的数据中心，比如 dc=us-west、dc=eu-central。服务注册的时候带上 datacenter 字段。查询的时候可以指定只查哪个数据中心，或者 all=true 跨数据中心聚合。跨数据中心查询要并行调用各中心的查询接口（这里抽象个 RemoteRegistry 接口，本地直接读内存，远端走 HTTP）。多中心的元数据存本地一份集群拓扑：每个数据中心的注册中心地址（seed list）。
+
+标签路由：服务可以注册多个 tag，比如 env=prod、version=v2、tier=backend。查询的时候可以加 tag 过滤条件：要求包含某些 tag、不能包含某些 tag。匹配方式支持精确和正则两种。
+
+健康检查机制有几种：
+- HTTP check：定期 GET 服务的 health 端点，2xx 算健康
+- TCP check：建立 TCP 连接，能连上算健康
+- TTL check：服务必须每 N 秒发一次心跳到 /v1/agent/service/heartbeat，过期剔除
+- 自定义脚本：执行外部命令，退出码 0 算健康（这块 Go 里 exec Command 实现）
+
+每种 check 类型一个独立 checker 跑在 goroutine 里，结果写回共享状态。
+
+过期清理：服务超时没续约就从注册表里删除。删除前要发一个 deregister 事件给订阅者（如果有 watch 接口的话）。注册表用 sync.RWLock 保护的 map[string]*ServiceEntry。
+
+watch 接口（可选）：客户端可以 GET /v1/catalog/service/<name>?watch=true 保持长连接，服务器在实例列表变化的时候通过 SSE 或者 chunked transfer 推送新的实例列表。这对动态扩缩容场景很有用，客户端不用轮询了。实现上用 channel 通知变化 + flush 推送。
+
+leader 选举（可选）：多实例部署注册中心的时候要选出一个 leader 做协调（比如跨数据中心同步、租约管理）。用 Raft 算法选 leader 太重，简化为基于 etcd lease 或者文件锁的简单选主（这里 Go 的话用 go.etcd.io/etcd/clientv3 做 lease）。单实例部署就跳过。
+
+并发安全这块要细心。注册表读写频繁，要选对锁——读多写少用 sync.RWMutex。每个服务实例的更新用 atomic.Value 存 snapshot 减少锁竞争。健康检查是并发的，每个实例一个 goroutine 跑自己的检查循环，结果通过 channel 汇总到主循环。检查循环里要处理超时（context.WithTimeout）和 panic 恢复（recover）。
+
+数据持久化：服务列表要不要写磁盘？服务注册是动态的，重启后服务会重新注册上来，所以一般不持久化。配置（数据中心拓扑、check 默认参数）从 yaml 配置文件读。运行时状态全部内存，重启清空。
+
+API 鉴权：内网环境可以简单做——X-Registry-Token 请求头，配置文件里配个共享密钥，token 匹配才允许 register/deregister，查询接口可以放空。生产环境换成 mTLS 或者 OAuth2。
+
+代码组织：main.go（启动 + 路由）、internal/registry（注册表核心）、internal/health（健康检查器）、internal/api（HTTP handler）、internal/dto（数据结构）、internal/cluster（多数据中心）、internal/election（leader 选举）、internal/auth（鉴权）。
+
+启动参数：--node-id（实例唯一 ID）、--bind（监听地址，默认 :8500）、--data-dir（数据目录）、--dc（所属数据中心）、--config（配置文件路径）、--primary（是否参与 leader 选举）。
+
+依赖：go-chi/chi、spf13/viper（配置）、可选 go.etcd.io/etcd/clientv3（leader 选举）、可选 hashicorp/go-hclog（日志）、可选 prom client（metrics）。
+
+测试要写：注册/注销的并发场景、心跳超时剔除、tag 过滤、watch 长连接。

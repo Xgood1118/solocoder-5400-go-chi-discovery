@@ -1,0 +1,4 @@
+bug1：time.Duration字段(JSON里TTL/interval/timeout)按纳秒解析，TTL=30变成30ns，注册服务后立刻被runCleanupLoop按TTL*3纳秒清掉，catalog里查不到。
+bug2：健康检查3连失败(max_failures)就自动DeregisterService，没grace period，新注册没启动的服务30秒内被清。
+bug3：health_check无type时默认ttl检查，触发上面两个bug。
+改法：duration字段改用string+time.ParseDuration，加注册宽限期。
