@@ -31,7 +31,7 @@ func (c *HTTPChecker) Check(entry *dto.ServiceEntry) dto.ServiceStatus {
 	}
 
 	url := entry.HealthCheck.HTTP
-	timeout := entry.HealthCheck.Timeout
+	timeout := entry.HealthCheck.Timeout.Duration()
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
@@ -71,7 +71,7 @@ func (c *TCPChecker) Check(entry *dto.ServiceEntry) dto.ServiceStatus {
 		addr = net.JoinHostPort(entry.Address, strconv.Itoa(entry.Port))
 	}
 
-	timeout := entry.HealthCheck.Timeout
+	timeout := entry.HealthCheck.Timeout.Duration()
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
@@ -96,7 +96,7 @@ func NewTTLChecker() *TTLChecker {
 }
 
 func (c *TTLChecker) Check(entry *dto.ServiceEntry) dto.ServiceStatus {
-	ttl := entry.HealthCheck.TTL
+	ttl := entry.HealthCheck.TTL.Duration()
 	if ttl == 0 {
 		ttl = entry.TTL
 	}
@@ -125,7 +125,7 @@ func (c *ScriptChecker) Check(entry *dto.ServiceEntry) dto.ServiceStatus {
 		return dto.StatusPassing
 	}
 
-	timeout := entry.HealthCheck.Timeout
+	timeout := entry.HealthCheck.Timeout.Duration()
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
@@ -216,9 +216,22 @@ func (m *HealthCheckManager) runCheckLoop(ctx context.Context, entry *dto.Servic
 		}
 	}()
 
-	interval := entry.HealthCheck.Interval
+	checkType := inferCheckType(entry)
+	interval := entry.HealthCheck.Interval.Duration()
 	if interval == 0 {
 		interval = 10 * time.Second
+	}
+
+	gracePeriod := interval * 2
+	graceUntil := entry.RegisteredAt.Add(gracePeriod)
+
+	initialDelay := time.Until(graceUntil)
+	if initialDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(initialDelay):
+		}
 	}
 
 	ticker := time.NewTicker(interval)
@@ -229,17 +242,28 @@ func (m *HealthCheckManager) runCheckLoop(ctx context.Context, entry *dto.Servic
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.runCheck(entry)
+			m.runCheck(entry, checkType)
 		}
 	}
 }
 
-func (m *HealthCheckManager) runCheck(entry *dto.ServiceEntry) {
-	checkType := entry.HealthCheck.Type
-	if checkType == "" {
-		checkType = dto.CheckTTL
+func inferCheckType(entry *dto.ServiceEntry) dto.HealthCheckType {
+	if entry.HealthCheck.Type != "" {
+		return entry.HealthCheck.Type
 	}
+	if entry.HealthCheck.HTTP != "" {
+		return dto.CheckHTTP
+	}
+	if entry.HealthCheck.TCP != "" {
+		return dto.CheckTCP
+	}
+	if entry.HealthCheck.Script != "" {
+		return dto.CheckScript
+	}
+	return dto.CheckTTL
+}
 
+func (m *HealthCheckManager) runCheck(entry *dto.ServiceEntry, checkType dto.HealthCheckType) {
 	checker, ok := m.checkers[checkType]
 	if !ok {
 		m.logger.Warn("unknown check type", "type", checkType)

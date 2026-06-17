@@ -53,20 +53,39 @@ func (r *Registry) Register(req *dto.ServiceRegisterRequest) (*dto.ServiceEntry,
 		dc = r.datacenter
 	}
 
-	ttl := req.TTL
-	if ttl == 0 {
-		ttl = req.HealthCheck.TTL
+	var ttl time.Duration
+	if req.TTL > 0 {
+		ttl = req.TTL.Duration()
+	} else if req.HealthCheck.TTL > 0 {
+		ttl = req.HealthCheck.TTL.Duration()
 	}
 	if ttl == 0 {
 		ttl = 30 * time.Second
 	}
 
-	interval := req.CheckInterval
-	if interval == 0 {
-		interval = req.HealthCheck.Interval
+	var interval time.Duration
+	if req.CheckInterval > 0 {
+		interval = req.CheckInterval.Duration()
+	} else if req.HealthCheck.Interval > 0 {
+		interval = req.HealthCheck.Interval.Duration()
 	}
 	if interval == 0 {
 		interval = 10 * time.Second
+	}
+
+	var timeout time.Duration
+	if req.HealthCheck.Timeout > 0 {
+		timeout = req.HealthCheck.Timeout.Duration()
+	}
+	if timeout == 0 {
+		timeout = 5 * time.Second
+	}
+
+	healthCheck := req.HealthCheck
+	healthCheck.Interval = dto.Duration(interval)
+	healthCheck.Timeout = dto.Duration(timeout)
+	if healthCheck.TTL == 0 {
+		healthCheck.TTL = dto.Duration(ttl)
 	}
 
 	entry := &dto.ServiceEntry{
@@ -76,19 +95,12 @@ func (r *Registry) Register(req *dto.ServiceRegisterRequest) (*dto.ServiceEntry,
 		Port:          req.Port,
 		Tags:          req.Tags,
 		Datacenter:    dc,
-		HealthCheck:   req.HealthCheck,
+		HealthCheck:   healthCheck,
 		Status:        dto.StatusPassing,
 		LastHeartbeat: time.Now(),
 		RegisteredAt:  time.Now(),
 		TTL:           ttl,
 		FailCount:     0,
-	}
-
-	if entry.HealthCheck.Interval == 0 {
-		entry.HealthCheck.Interval = interval
-	}
-	if entry.HealthCheck.Timeout == 0 {
-		entry.HealthCheck.Timeout = 5 * time.Second
 	}
 
 	r.mu.Lock()

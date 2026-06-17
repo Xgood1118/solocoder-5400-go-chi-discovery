@@ -1,8 +1,42 @@
 package dto
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 )
+
+type Duration time.Duration
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+
+	switch value := v.(type) {
+	case float64:
+		*d = Duration(time.Duration(value) * time.Second)
+		return nil
+	case string:
+		tmp, err := time.ParseDuration(value)
+		if err != nil {
+			return err
+		}
+		*d = Duration(tmp)
+		return nil
+	default:
+		return fmt.Errorf("invalid duration type: %T", v)
+	}
+}
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Duration(d).String())
+}
+
+func (d Duration) Duration() time.Duration {
+	return time.Duration(d)
+}
 
 type HealthCheckType string
 
@@ -26,21 +60,21 @@ type HealthCheckConfig struct {
 	HTTP     string          `json:"http,omitempty"`
 	TCP      string          `json:"tcp,omitempty"`
 	Script   string          `json:"script,omitempty"`
-	Interval time.Duration   `json:"interval"`
-	Timeout  time.Duration   `json:"timeout"`
-	TTL      time.Duration   `json:"ttl,omitempty"`
+	Interval Duration        `json:"interval"`
+	Timeout  Duration        `json:"timeout"`
+	TTL      Duration        `json:"ttl,omitempty"`
 }
 
 type ServiceRegisterRequest struct {
-	ServiceName  string            `json:"service_name" binding:"required"`
-	ServiceID    string            `json:"service_id"`
-	Address      string            `json:"address" binding:"required"`
-	Port         int               `json:"port" binding:"required"`
-	Tags         []string          `json:"tags"`
-	Datacenter   string            `json:"datacenter"`
-	HealthCheck  HealthCheckConfig `json:"health_check"`
-	CheckInterval time.Duration    `json:"check_interval"`
-	TTL          time.Duration     `json:"ttl"`
+	ServiceName   string            `json:"service_name" binding:"required"`
+	ServiceID     string            `json:"service_id"`
+	Address       string            `json:"address" binding:"required"`
+	Port          int               `json:"port" binding:"required"`
+	Tags          []string          `json:"tags"`
+	Datacenter    string            `json:"datacenter"`
+	HealthCheck   HealthCheckConfig `json:"health_check"`
+	CheckInterval Duration          `json:"check_interval"`
+	TTL           Duration          `json:"ttl"`
 }
 
 type ServiceEntry struct {

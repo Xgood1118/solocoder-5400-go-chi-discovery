@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func TestRegisterConcurrent(t *testing.T) {
 				Address:     "127.0.0.1",
 				Port:        8000 + idx,
 				Tags:        []string{"env=test", "version=v1"},
-				TTL:         10 * time.Second,
+				TTL:         dto.Duration(10 * time.Second),
 			}
 			entry, err := reg.Register(req)
 			if err != nil {
@@ -64,7 +65,7 @@ func TestDeregisterConcurrent(t *testing.T) {
 			ServiceName: "test-service",
 			Address:     "127.0.0.1",
 			Port:        8000 + i,
-			TTL:         10 * time.Second,
+			TTL:         dto.Duration(10 * time.Second),
 		}
 		entry, _ := reg.Register(req)
 		serviceIDs[i] = entry.ServiceID
@@ -98,7 +99,7 @@ func TestHeartbeatTimeoutCleanup(t *testing.T) {
 		ServiceName: "test-service",
 		Address:     "127.0.0.1",
 		Port:        8000,
-		TTL:         1 * time.Second,
+		TTL:         dto.Duration(1 * time.Second),
 	}
 	entry, err := reg.Register(req)
 	if err != nil {
@@ -134,7 +135,7 @@ func TestHeartbeatKeepsService(t *testing.T) {
 		ServiceName: "test-service",
 		Address:     "127.0.0.1",
 		Port:        8000,
-		TTL:         500 * time.Millisecond,
+		TTL:         dto.Duration(500 * time.Millisecond),
 	}
 	entry, _ := reg.Register(req)
 
@@ -178,7 +179,7 @@ func TestTagFilterExact(t *testing.T) {
 			Address:     "127.0.0.1",
 			Port:        e.port,
 			Tags:        e.tags,
-			TTL:         30 * time.Second,
+			TTL:         dto.Duration(30 * time.Second),
 		}
 		_, _ = reg.Register(req)
 	}
@@ -228,7 +229,7 @@ func TestTagFilterRegex(t *testing.T) {
 			Address:     "127.0.0.1",
 			Port:        e.port,
 			Tags:        e.tags,
-			TTL:         30 * time.Second,
+			TTL:         dto.Duration(30 * time.Second),
 		}
 		_, _ = reg.Register(req)
 	}
@@ -259,7 +260,7 @@ func TestWatchEvents(t *testing.T) {
 		Address:     "127.0.0.1",
 		Port:        8000,
 		Tags:        []string{"env=prod"},
-		TTL:         30 * time.Second,
+		TTL:         dto.Duration(30 * time.Second),
 	}
 	entry1, _ := reg.Register(req1)
 
@@ -283,7 +284,7 @@ func TestWatchEvents(t *testing.T) {
 		Address:     "127.0.0.1",
 		Port:        8001,
 		Tags:        []string{"env=prod"},
-		TTL:         30 * time.Second,
+		TTL:         dto.Duration(30 * time.Second),
 	}
 	entry2, _ := reg.Register(req2)
 
@@ -343,7 +344,7 @@ func TestWatchMultipleClients(t *testing.T) {
 		ServiceName: "order-service",
 		Address:     "127.0.0.1",
 		Port:        8000,
-		TTL:         30 * time.Second,
+		TTL:         dto.Duration(30 * time.Second),
 	}
 	_, _ = reg.Register(req)
 
@@ -370,7 +371,7 @@ func TestHealthStatusUpdate(t *testing.T) {
 		ServiceName: "test-service",
 		Address:     "127.0.0.1",
 		Port:        8000,
-		TTL:         30 * time.Second,
+		TTL:         dto.Duration(30 * time.Second),
 	}
 	entry, _ := reg.Register(req)
 
@@ -420,7 +421,7 @@ func TestListServices(t *testing.T) {
 			Address:     "127.0.0.1",
 			Port:        s.port,
 			Tags:        s.tags,
-			TTL:         30 * time.Second,
+			TTL:         dto.Duration(30 * time.Second),
 		}
 		_, _ = reg.Register(req)
 	}
@@ -451,7 +452,7 @@ func TestGetServiceHealth(t *testing.T) {
 		ServiceName: "test-service",
 		Address:     "127.0.0.1",
 		Port:        8000,
-		TTL:         30 * time.Second,
+		TTL:         dto.Duration(30 * time.Second),
 	}
 	entry1, _ := reg.Register(req1)
 
@@ -459,7 +460,7 @@ func TestGetServiceHealth(t *testing.T) {
 		ServiceName: "test-service",
 		Address:     "127.0.0.1",
 		Port:        8001,
-		TTL:         30 * time.Second,
+		TTL:         dto.Duration(30 * time.Second),
 	}
 	entry2, _ := reg.Register(req2)
 
@@ -467,7 +468,7 @@ func TestGetServiceHealth(t *testing.T) {
 		ServiceName: "test-service",
 		Address:     "127.0.0.1",
 		Port:        8002,
-		TTL:         30 * time.Second,
+		TTL:         dto.Duration(30 * time.Second),
 	}
 	entry3, _ := reg.Register(req3)
 
@@ -499,7 +500,7 @@ func TestDatacenterFiltering(t *testing.T) {
 		Address:     "127.0.0.1",
 		Port:        8000,
 		Datacenter:  "dc1",
-		TTL:         30 * time.Second,
+		TTL:         dto.Duration(30 * time.Second),
 	}
 	_, _ = reg.Register(req1)
 
@@ -508,7 +509,7 @@ func TestDatacenterFiltering(t *testing.T) {
 		Address:     "127.0.0.2",
 		Port:        8000,
 		Datacenter:  "dc2",
-		TTL:         30 * time.Second,
+		TTL:         dto.Duration(30 * time.Second),
 	}
 	_, _ = reg.Register(req2)
 
@@ -523,5 +524,131 @@ func TestDatacenterFiltering(t *testing.T) {
 	instances = reg.ListServiceInstances("test-service", dto.TagFilter{}, "", true, false)
 	if len(instances) != 2 {
 		t.Errorf("expected 2 instances across all datacenters, got %d", len(instances))
+	}
+}
+
+func TestDurationJSON_IntAsSeconds(t *testing.T) {
+	jsonData := `{"ttl": 30, "check_interval": 10}`
+
+	var req dto.ServiceRegisterRequest
+	err := json.Unmarshal([]byte(jsonData), &req)
+	if err != nil {
+		t.Fatalf("json unmarshal failed: %v", err)
+	}
+
+	if req.TTL.Duration() != 30*time.Second {
+		t.Errorf("expected 30s TTL, got %v", req.TTL.Duration())
+	}
+	if req.CheckInterval.Duration() != 10*time.Second {
+		t.Errorf("expected 10s interval, got %v", req.CheckInterval.Duration())
+	}
+}
+
+func TestDurationJSON_StringFormat(t *testing.T) {
+	jsonData := `{"ttl": "30s", "check_interval": "2m"}`
+
+	var req dto.ServiceRegisterRequest
+	err := json.Unmarshal([]byte(jsonData), &req)
+	if err != nil {
+		t.Fatalf("json unmarshal failed: %v", err)
+	}
+
+	if req.TTL.Duration() != 30*time.Second {
+		t.Errorf("expected 30s TTL, got %v", req.TTL.Duration())
+	}
+	if req.CheckInterval.Duration() != 2*time.Minute {
+		t.Errorf("expected 2m interval, got %v", req.CheckInterval.Duration())
+	}
+}
+
+func TestDurationJSON_HealthCheckConfig(t *testing.T) {
+	jsonData := `{
+		"type": "http",
+		"http": "http://localhost:8080/health",
+		"interval": 15,
+		"timeout": "5s",
+		"ttl": "1m"
+	}`
+
+	var cfg dto.HealthCheckConfig
+	err := json.Unmarshal([]byte(jsonData), &cfg)
+	if err != nil {
+		t.Fatalf("json unmarshal failed: %v", err)
+	}
+
+	if cfg.Type != dto.CheckHTTP {
+		t.Errorf("expected http type, got %s", cfg.Type)
+	}
+	if cfg.Interval.Duration() != 15*time.Second {
+		t.Errorf("expected 15s interval, got %v", cfg.Interval.Duration())
+	}
+	if cfg.Timeout.Duration() != 5*time.Second {
+		t.Errorf("expected 5s timeout, got %v", cfg.Timeout.Duration())
+	}
+	if cfg.TTL.Duration() != 1*time.Minute {
+		t.Errorf("expected 1m TTL, got %v", cfg.TTL.Duration())
+	}
+}
+
+func TestRegisterWithTTLJSONNumber_NotNanoseconds(t *testing.T) {
+	reg := NewRegistry("dc1", 3)
+
+	jsonData := `{
+		"service_name": "test-service",
+		"address": "127.0.0.1",
+		"port": 8000,
+		"ttl": 30
+	}`
+
+	var req dto.ServiceRegisterRequest
+	err := json.Unmarshal([]byte(jsonData), &req)
+	if err != nil {
+		t.Fatalf("json unmarshal failed: %v", err)
+	}
+
+	entry, err := reg.Register(&req)
+	if err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	if entry.TTL != 30*time.Second {
+		t.Errorf("TTL number in JSON should be treated as seconds, got %v", entry.TTL)
+	}
+
+	reg.mu.Lock()
+	reg.services[entry.ServiceID].LastHeartbeat = time.Now().Add(-25 * time.Second)
+	reg.mu.Unlock()
+	reg.updateSnapshot()
+
+	expired := reg.CleanupExpired()
+	if len(expired) != 0 {
+		t.Errorf("service should not expire at 25s with 30s TTL (x3 threshold), but got %d expired", len(expired))
+	}
+}
+
+func TestRegisterDefaultTTL_NotZero(t *testing.T) {
+	reg := NewRegistry("dc1", 3)
+
+	req := &dto.ServiceRegisterRequest{
+		ServiceName: "test-service",
+		Address:     "127.0.0.1",
+		Port:        8000,
+	}
+	entry, err := reg.Register(req)
+	if err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	if entry.TTL == 0 {
+		t.Error("TTL should have default value, not zero")
+	}
+	if entry.TTL < 1*time.Second {
+		t.Errorf("default TTL should be reasonable (>= 1s), got %v", entry.TTL)
+	}
+	if entry.HealthCheck.Interval.Duration() == 0 {
+		t.Error("health check interval should have default value")
+	}
+	if entry.HealthCheck.Timeout.Duration() == 0 {
+		t.Error("health check timeout should have default value")
 	}
 }
